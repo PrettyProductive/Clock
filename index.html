@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pretty Productive Clock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --tile: #7C5B4A;
+    --ink: #E2D7CB;   /* beige from the original Indify tiles */
+    /* Tile width scales with the embed so it fits any block size */
+    --w: min(28vw, 62vh);
+    --h: calc(var(--w) * 1.12);
+    --r: calc(var(--w) * 0.07);
+    --flip: 600ms;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: transparent;   /* blends into Notion light and dark mode */
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: "DM Serif Display", "Times New Roman", serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .clock {
+    display: flex;
+    align-items: flex-end;
+    gap: calc(var(--w) * 0.14);
+  }
+  .tile {
+    position: relative;
+    width: var(--w);
+    height: var(--h);
+    perspective: calc(var(--w) * 4);
+    border-radius: var(--r);
+    box-shadow: 0 calc(var(--w) * 0.04) calc(var(--w) * 0.1) rgba(60, 40, 30, 0.28);
+  }
+  .tile.small {
+    --w: min(12.5vw, 28vh);
+    --h: calc(var(--w) * 0.72);
+    --r: calc(var(--w) * 0.09);
+    margin-left: calc(var(--w) * -0.15);
+  }
+  .face, .half, .flap {
+    position: absolute;
+    left: 0;
+    width: 100%;
+    background: var(--tile);
+    color: var(--ink);
+    overflow: hidden;
+  }
+  .face {
+    top: 0; height: 100%;
+    border-radius: var(--r);
+  }
+  .half, .flap { height: 50%; visibility: hidden; }
+  .top    { top: 0;   border-radius: var(--r) var(--r) 0 0; }
+  .bottom { top: 50%; border-radius: 0 0 var(--r) var(--r); }
+  .flap { backface-visibility: hidden; z-index: 2; }
+  .flap.top    { transform-origin: 50% 100%; }
+  .flap.bottom { transform-origin: 50% 0;   transform: rotateX(90deg); }
+
+  /* The digit always sits centred on the full tile height */
+  .num {
+    position: absolute;
+    left: 0; top: 0;
+    width: 100%;
+    height: var(--h);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: calc(var(--h) * 0.62);
+    line-height: 1;
+    letter-spacing: 0.01em;
+  }
+  .bottom .num { top: calc(var(--h) * -0.5); }
+  .small .num { font-size: calc(var(--h) * 0.48); letter-spacing: 0.06em; }
+
+  /* While flipping, swap the solid face for the two halves */
+  .tile.flipping .face { visibility: hidden; }
+  .tile.flipping .half,
+  .tile.flipping .flap { visibility: visible; }
+  .tile.flipping .flap.top    { animation: fold-top    calc(var(--flip) / 2) ease-in forwards; }
+  .tile.flipping .flap.bottom { animation: fold-bottom calc(var(--flip) / 2) ease-out calc(var(--flip) / 2) forwards; }
+  /* Flaps darken slightly mid-fold so the movement reads clearly */
+  @keyframes fold-top    { from { transform: rotateX(0); filter: brightness(1); }        to { transform: rotateX(-90deg); filter: brightness(0.75); } }
+  @keyframes fold-bottom { from { transform: rotateX(90deg); filter: brightness(0.75); } to { transform: rotateX(0); filter: brightness(1); } }
+
+  @media (prefers-reduced-motion: reduce) {
+    :root { --flip: 0ms; }
+  }
+</style>
+</head>
+<body>
+  <div class="clock" aria-live="polite">
+    <div class="tile" id="hours"></div>
+    <div class="tile" id="minutes"></div>
+    <div class="tile small" id="ampm"></div>
+  </div>
+
+<script>
+  const FLIP_MS = 600;
+
+  function build(tile, value) {
+    tile.innerHTML =
+      '<div class="face"><div class="num"></div></div>' +
+      '<div class="half top"><div class="num"></div></div>' +
+      '<div class="half bottom"><div class="num"></div></div>' +
+      '<div class="flap top"><div class="num"></div></div>' +
+      '<div class="flap bottom"><div class="num"></div></div>';
+    tile.dataset.value = value;
+    tile.querySelectorAll('.num').forEach(n => n.textContent = value);
+  }
+
+  function set(tile, value) {
+    if (!tile.dataset.value) return build(tile, value);
+    if (tile.dataset.value === value) return;
+    const old = tile.dataset.value;
+    const q = s => tile.querySelector(s + ' .num');
+    q('.half.top').textContent = value;     // revealed behind the falling flap
+    q('.half.bottom').textContent = old;    // covered by the rising flap
+    q('.flap.top').textContent = old;
+    q('.flap.bottom').textContent = value;
+    q('.face').textContent = value;
+    tile.dataset.value = value;
+
+    tile.classList.remove('flipping');
+    void tile.offsetWidth;                  // restart the animation
+    tile.classList.add('flipping');
+    clearTimeout(tile._t);
+    tile._t = setTimeout(() => tile.classList.remove('flipping'), FLIP_MS + 50);
+  }
+
+  function tick() {
+    const now = new Date();
+    const h24 = now.getHours();
+    const h12 = h24 % 12 || 12;
+    set(document.getElementById('hours'), String(h12).padStart(2, '0'));
+    set(document.getElementById('minutes'), String(now.getMinutes()).padStart(2, '0'));
+    set(document.getElementById('ampm'), h24 < 12 ? 'AM' : 'PM');
+  }
+
+  tick();
+  setInterval(tick, 1000);
+</script>
+</body>
+</html>
